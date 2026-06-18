@@ -304,6 +304,22 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
   color:var(--text);letter-spacing:-.02em}
 .confirm-card p{font-size:14px;color:var(--text2);line-height:1.6}
 .confirm-btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+
+/* ── FRAGENTYP TOGGLE ── */
+.type-toggle{display:flex;gap:0;border:1.5px solid var(--border);border-radius:100px;overflow:hidden;flex-shrink:0}
+.type-btn{padding:5px 12px;font-size:12px;font-weight:600;border:none;cursor:pointer;
+  background:transparent;color:var(--text2);transition:all .15s;white-space:nowrap}
+.type-btn.active{background:var(--accent);color:#fff}
+.type-btn:first-child{border-radius:100px 0 0 100px}
+.type-btn:last-child{border-radius:0 100px 100px 0}
+
+/* ── POLL MODE: no correct highlight, neutral reveal ── */
+.abtn.poll-reveal{opacity:.5}
+.abtn.poll-winner{opacity:1;outline:2.5px solid var(--accent);outline-offset:-2px}
+
+/* ── POLL BADGE on question screen ── */
+.poll-badge{background:var(--accent-light);color:var(--accent);font-size:11px;font-weight:600;
+  padding:3px 10px;border-radius:100px;letter-spacing:.04em}
 .hidden{display:none!important}
 .divider{height:1px;background:var(--border);width:100%}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
@@ -420,7 +436,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 <div id="screen-result" class="screen">
   <div class="result-wrap">
     <div>
-      <div class="rl">✅ Richtige Antwort</div>
+      <div class="rl" id="resultCorrectLabel">✅ Richtige Antwort</div>
       <div class="ra" id="resultCorrect"></div>
     </div>
     <div class="rbars" id="resultBars"></div>
@@ -515,7 +531,11 @@ function renderEditor(){
     d.innerHTML=`
       <div class="q-card-head">
         <div class="q-num">${i+1}</div>
-        <input type="text" placeholder="Frage eingeben…" value="${esc(q.text)}" oninput="quiz.questions[${i}].text=this.value">
+        <div class="type-toggle">
+          <button class="type-btn${!q.poll?' active':''}" onclick="setType(${i},'quiz')">🎯 Quiz</button>
+          <button class="type-btn${q.poll?' active':''}" onclick="setType(${i},'poll')">📊 Befragung</button>
+        </div>
+        <input type="text" placeholder="${q.poll?'Frage / Aussage eingeben…':'Frage eingeben…'}" value="${esc(q.text)}" oninput="quiz.questions[${i}].text=this.value">
         <div class="timer-sel">⏱ <select onchange="quiz.questions[${i}].time=+this.value">
           ${[10,15,20,30,45,60].map(t=>`<option value="${t}"${q.time===t?' selected':''}>${t}s</option>`).join('')}
         </select></div>
@@ -527,11 +547,12 @@ function renderEditor(){
           <input type="text" placeholder="Antwort ${'ABCD'[j]}" value="${esc(q.answers[j])}"
             oninput="quiz.questions[${i}].answers[${j}]=this.value"></div>`).join('')}
       </div>
-      <div class="correct-sel">✅ Richtige Antwort:
+      <div class="correct-sel" ${q.poll?'style="display:none"':''}>✅ Richtige Antwort:
         <select onchange="quiz.questions[${i}].correct=+this.value">
           ${['A','B','C','D'].map((l,j)=>`<option value="${j}"${q.correct===j?' selected':''}>${l}</option>`).join('')}
         </select>
-      </div>`;
+      </div>
+      ${q.poll?'<div style="font-size:12px;color:var(--text3);margin-top:10px">📊 Befragungsmodus — alle Antworten sind gleichwertig, kein Punkte-System</div>':''}`;
     list.appendChild(d);
   });
 }
@@ -619,7 +640,10 @@ async function showQuestion(idx){
   const q=quiz.questions[idx];
   document.getElementById('qNum').textContent=idx+1;
   document.getElementById('qTotal').textContent=quiz.questions.length;
-  document.getElementById('qLabel').textContent='Frage '+(idx+1)+' von '+quiz.questions.length;
+  const isPoll = !!q.poll;
+  document.getElementById('qLabel').innerHTML = isPoll
+    ? 'Frage '+(idx+1)+' von '+quiz.questions.length+' &nbsp;<span class="poll-badge">📊 Befragung</span>'
+    : 'Frage '+(idx+1)+' von '+quiz.questions.length;
   document.getElementById('qText').textContent=q.text;
   document.getElementById('ansCount').textContent='0 / '+(code?'…':'–');
   const grid=document.getElementById('hostAnswers');grid.innerHTML='';
@@ -670,10 +694,24 @@ async function pollAnswers(idx){
 async function revealAnswer(idx){
   clearInterval(timerIv);clearInterval(pollIv);
   const q=quiz.questions[idx];
-  [0,1,2,3].forEach(i=>{
-    const b=document.getElementById('hb'+i);
-    if(b)b.classList.add(i===q.correct?'reveal-correct':'reveal-wrong');
-  });
+  if(q.poll){
+    // Poll mode: highlight most-voted answer
+    let counts=[0,0,0,0];
+    if(code){
+      const{data}=await sb.from('lehrquiz_answers').select('answer_index').eq('session_code',code).eq('question_index',idx);
+      if(data)data.forEach(r=>counts[r.answer_index]++);
+    }
+    const max=Math.max(...counts);
+    [0,1,2,3].forEach(i=>{
+      const b=document.getElementById('hb'+i);
+      if(b)b.classList.add(counts[i]===max && max>0?'poll-winner':'poll-reveal');
+    });
+  } else {
+    [0,1,2,3].forEach(i=>{
+      const b=document.getElementById('hb'+i);
+      if(b)b.classList.add(i===q.correct?'reveal-correct':'reveal-wrong');
+    });
+  }
   if(code)await sb.from('lehrquiz_sessions').update({phase:'reveal',question_index:idx}).eq('code',code);
   setTimeout(()=>showResult(idx),2200);
 }
@@ -681,7 +719,15 @@ async function revealAnswer(idx){
 async function showResult(idx){
   const q=quiz.questions[idx];let counts=[0,0,0,0];
   if(code){const{data}=await sb.from('lehrquiz_answers').select('answer_index').eq('session_code',code).eq('question_index',idx);if(data)data.forEach(r=>counts[r.answer_index]++);}
-  document.getElementById('resultCorrect').textContent=q.answers[q.correct];
+  if(q.poll){
+    const maxC=Math.max(...counts,1);
+    const topIdx=counts.indexOf(maxC);
+    document.getElementById('resultCorrectLabel').textContent='📊 Meistgewählt';
+    document.getElementById('resultCorrect').textContent=q.answers[topIdx];
+  } else {
+    document.getElementById('resultCorrectLabel').textContent='✅ Richtige Antwort';
+    document.getElementById('resultCorrect').textContent=q.answers[q.correct];
+  }
   const bars=document.getElementById('resultBars');bars.innerHTML='';
   const max=Math.max(...counts,1);
   ['ra2','rb2','rc2','rd2'].forEach((cl,i)=>{
@@ -765,14 +811,19 @@ function showPlayerQ(idx){
     b.onclick=async()=>{
       if(answered)return;answered=true;clearInterval(pTimerIv);
       grid.querySelectorAll('.pab').forEach(x=>x.classList.add('locked'));b.classList.add('sel');
-      const bonus=i===q.correct?Math.max(100,Math.round(1000*(t/q.time))):0;myScore+=bonus;
+      const isPoll=!!q.poll;
+      const bonus=isPoll?0:(i===q.correct?Math.max(100,Math.round(1000*(t/q.time))):0);
+      myScore+=bonus;
       await sb.from('lehrquiz_answers').upsert({session_code:code,question_index:idx,player_name:myName,answer_index:i,points_earned:bonus},{onConflict:'session_code,question_index,player_name'});
-      const{data:pl}=await sb.from('lehrquiz_players').select('score').eq('session_code',code).eq('name',myName).single();
-      const ns=(pl?.score||0)+bonus;
-      await sb.from('lehrquiz_players').update({score:ns}).eq('session_code',code).eq('name',myName);
-      myScore=ns;
+      if(!isPoll){
+        const{data:pl}=await sb.from('lehrquiz_players').select('score').eq('session_code',code).eq('name',myName).single();
+        const ns=(pl?.score||0)+bonus;
+        await sb.from('lehrquiz_players').update({score:ns}).eq('session_code',code).eq('name',myName);
+        myScore=ns;
+      }
       const fb=document.getElementById('pFeedback');fb.classList.remove('hidden');
-      if(i===q.correct){fb.textContent=`✅ Richtig! +${bonus} Punkte`;fb.className='pfb ok';}
+      if(isPoll){fb.textContent='📊 Antwort gespeichert!';fb.className='pfb ok';}
+      else if(i===q.correct){fb.textContent=`✅ Richtig! +${bonus} Punkte`;fb.className='pfb ok';}
       else{fb.textContent=`❌ Falsch — Richtig: ${q.answers[q.correct]}`;fb.className='pfb ko';}
     };
     grid.appendChild(b);
@@ -836,12 +887,24 @@ async function endGameNow(){
 
 
 // ── ADD / DELETE QUESTIONS ──
+
+function setType(i, type){
+  quiz.questions[i].poll = (type === 'poll');
+  renderEditor();
+  // scroll back to same card
+  setTimeout(()=>{
+    const cards = document.querySelectorAll('.q-card');
+    if(cards[i]) cards[i].scrollIntoView({behavior:'smooth', block:'center'});
+  }, 50);
+}
+
 function addQuestion(){
   quiz.questions.push({
     text:'',
     answers:['','','',''],
     correct:0,
-    time:20
+    time:20,
+    poll:false
   });
   renderEditor();
   // scroll to new card
