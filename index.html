@@ -4,7 +4,98 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>LehrQuiz</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
+// WORDCLOUD
+var wcPollIv=null,wcWords={};
+async function showWordcloud(idx){
+  var q=quiz.questions[idx];wcWords={};
+  document.getElementById('wcQNum').textContent=idx+1;
+  document.getElementById('wcQTotal').textContent=quiz.questions.length;
+  document.getElementById('wcQuestion').textContent=q.text;
+  document.getElementById('wcWordCount').textContent='0';
+  curQ=idx;
+  var isLast=idx>=quiz.questions.length-1;
+  document.getElementById('wcNextBtn').textContent=isLast?'Ergebnisse':'Naechste Frage';
+  nav('wordcloud');
+  if(code)await sb.from('lehrquiz_sessions').update({phase:'wordcloud',question_index:idx}).eq('code',code);
+  setTimeout(function(){drawWordcloud({});},120);
+  if(code)pollWordcloud(idx);
+}
+async function pollWordcloud(idx){
+  clearInterval(wcPollIv);
+  wcPollIv=setInterval(async function(){
+    if(!document.getElementById('screen-wordcloud').classList.contains('active')){clearInterval(wcPollIv);return;}
+    var res=await sb.from('lehrquiz_words').select('word').eq('session_code',code).eq('question_index',idx);
+    if(res.error||!res.data)return;
+    var counts={};
+    res.data.forEach(function(r){var w=r.word.toLowerCase();counts[w]=(counts[w]||0)+1;});
+    document.getElementById('wcWordCount').textContent=res.data.length;
+    if(JSON.stringify(counts)!==JSON.stringify(wcWords)){wcWords=counts;drawWordcloud(counts);}
+  },1200);
+}
+function drawWordcloud(words){
+  var canvas=document.getElementById('wcCanvas');
+  var wrap=canvas.parentElement;
+  canvas.width=wrap.clientWidth||780;
+  canvas.height=Math.max(wrap.clientHeight,260);
+  var ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  var entries=Object.entries(words).sort(function(a,b){return b[1]-a[1];});
+  if(!entries.length){
+    ctx.fillStyle='#b0c4d8';ctx.font='15px Inter';ctx.textAlign='center';
+    ctx.fillText('Warte auf Antworten...',canvas.width/2,canvas.height/2);return;
+  }
+  var maxC=Math.max.apply(null,entries.map(function(e){return e[1];}));maxC=Math.max(maxC,1);
+  var minS=16,maxS=Math.min(canvas.width/5,72);
+  var colors=['#1a3a6b','#00b4c8','#2d5a9e','#0097a7','#6b8cba','#00899a','#3a6bc7'];
+  var placed=[];
+  var cx=canvas.width/2,cy=canvas.height/2;
+  entries.forEach(function(entry,i){
+    var word=entry[0],count=entry[1];
+    var size=Math.round(minS+(count/maxC)*(maxS-minS));
+    var weight=count>2?700:count>1?600:400;
+    ctx.font=weight+' '+size+'px 'Source Sans 3',Inter,sans-serif';
+    var tw=ctx.measureText(word).width;
+    var color=colors[i%colors.length];
+    for(var r=0;r<Math.max(cx,cy)*1.6;r+=3){
+      var angle=r*0.3+i*0.5;
+      var x=cx+r*Math.cos(angle)-tw/2;
+      var y=cy+r*Math.sin(angle)+size/3;
+      if(x<4||x+tw>canvas.width-4||y-size<4||y>canvas.height-4)continue;
+      var box={x:x,y:y,w:tw,h:size};
+      var hit=placed.some(function(p){
+        return box.x<p.x+p.w+5&&box.x+box.w+5>p.x&&box.y-box.h<p.y+4&&box.y+4>p.y-p.h;
+      });
+      if(!hit){placed.push(box);ctx.fillStyle=color;ctx.fillText(word,x,y);break;}
+    }
+  });
+}
+function showPlayerWordcloud(idx){
+  var q=quiz.questions[idx];
+  document.getElementById('pwcQNum').textContent=idx+1;
+  document.getElementById('pwcPrompt').textContent=q.text;
+  document.getElementById('wcWordInput').value='';
+  document.getElementById('wcSubmitBtn').classList.remove('hidden');
+  document.getElementById('wcSentMsg').classList.add('hidden');
+  nav('player-wc');
+}
+async function submitWord(){
+  var word=document.getElementById('wcWordInput').value.trim();
+  if(!word){toast('Bitte ein Wort eingeben!');return;}
+  var res=await sb.from('lehrquiz_words').upsert(
+    {session_code:code,question_index:curQ,player_name:myName,word:word},
+    {onConflict:'session_code,question_index,player_name'}
+  );
+  if(res.error){toast('Fehler: '+res.error.message);return;}
+  document.getElementById('wcSubmitBtn').classList.add('hidden');
+  document.getElementById('wcSentMsg').classList.remove('hidden');
+  document.getElementById('wcSentMsg').textContent='Ihr Wort "'+word+'" wurde gespeichert!';
+}
+window.addEventListener('resize',function(){
+  if(document.getElementById('screen-wordcloud').classList.contains('active'))drawWordcloud(wcWords);
+});
+
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -324,6 +415,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 /* ── POLL BADGE on question screen ── */
 .poll-badge{background:var(--cyan-light);color:var(--cyan);font-size:11px;font-weight:600;
   padding:3px 10px;border-radius:100px;letter-spacing:.04em}
+.wc-header{background:var(--surface);padding:14px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid var(--cyan);flex-shrink:0;gap:12px;width:100%}.wc-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 28px;gap:16px;width:100%}#screen-wordcloud{background:var(--bg);flex-direction:column}.wc-question{font-family:'Source Sans 3',sans-serif;font-size:clamp(17px,2.8vw,26px);font-weight:600;color:var(--text);text-align:center;max-width:780px;background:var(--surface);border-radius:var(--r-lg);padding:18px 28px;border:1.5px solid var(--border);box-shadow:var(--shadow);width:100%}.wc-canvas-wrap{flex:1;width:100%;max-width:900px;min-height:260px;position:relative}#wcCanvas{width:100%;display:block;min-height:260px}.wc-count{font-size:13px;color:var(--text3);font-weight:500}.wc-count strong{color:var(--cyan);font-size:18px;font-family:'Source Sans 3',sans-serif;font-weight:700}#screen-player-wc{background:var(--bg);align-items:center;justify-content:center;padding:28px 20px;gap:20px}.wc-input-card{background:var(--surface);border-radius:var(--r-lg);padding:28px 24px;width:100%;max-width:420px;display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow-lg);border:1.5px solid var(--border)}.wc-prompt{font-size:15px;font-weight:600;color:var(--text);text-align:center;line-height:1.4}.wc-word-input{width:100%;background:var(--bg);border:2px solid var(--border);color:var(--text);font-family:'Source Sans 3',sans-serif;font-size:22px;font-weight:600;padding:14px 16px;border-radius:var(--r);outline:none;transition:border-color .2s;text-align:center}.wc-word-input:focus{border-color:var(--cyan)}.wc-sent{text-align:center;color:var(--cyan);font-size:15px;font-weight:600;padding:12px;background:var(--cyan-light);border-radius:var(--r);border:1.5px solid var(--cyan)}
 .hidden{display:none!important}
 .divider{height:1px;background:var(--border);width:100%}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
@@ -554,6 +646,7 @@ function renderEditor(){
         <div class="type-toggle">
           <button class="type-btn${!q.poll?' active':''}" onclick="setType(${i},'quiz')">🎯 Quiz</button>
           <button class="type-btn${q.poll?' active':''}" onclick="setType(${i},'poll')">📊 Befragung</button>
+          <button class="type-btn${q.type==='wordcloud'?' active':''}" onclick="setType(${i},'wordcloud')">☁️ Wortwolke</button>
         </div>
         <input type="text" placeholder="${q.poll?'Frage / Aussage eingeben…':'Frage eingeben…'}" value="${esc(q.text)}" oninput="quiz.questions[${i}].text=this.value">
         <div class="timer-sel">⏱ <select onchange="quiz.questions[${i}].time=+this.value">
@@ -561,12 +654,12 @@ function renderEditor(){
         </select></div>
         <button class="btn btn-icon btn-danger" onclick="deleteQuestion(${i})" title="Frage löschen">🗑</button>
       </div>
-      <div class="ag">
+      ${q.type!=='wordcloud'?`<div class="ag">
         ${['a','b','c','d'].map((cl,j)=>`
           <div class="aw"><div class="adot ${cl}">${'ABCD'[j]}</div>
           <input type="text" placeholder="Antwort ${'ABCD'[j]}" value="${esc(q.answers[j])}"
             oninput="quiz.questions[${i}].answers[${j}]=this.value"></div>`).join('')}
-      </div>
+      </div>`:'<div style="padding:14px;font-size:13px;color:var(--text3);text-align:center;background:var(--bg);border-radius:var(--r);border:1.5px dashed var(--border)">Teilnehmende tippen frei ein Wort</div>'}
       <div class="correct-sel" ${q.poll?'style="display:none"':''}>✅ Richtige Antwort:
         <select onchange="quiz.questions[${i}].correct=+this.value">
           ${['A','B','C','D'].map((l,j)=>`<option value="${j}"${q.correct===j?' selected':''}>${l}</option>`).join('')}
@@ -658,6 +751,7 @@ async function hostStart(){
 // ── QUESTION ──
 async function showQuestion(idx){
   const q=quiz.questions[idx];
+  if(q.type==='wordcloud'){await showWordcloud(idx);return;}
   document.getElementById('qNum').textContent=idx+1;
   document.getElementById('qTotal').textContent=quiz.questions.length;
   const isPoll = !!q.poll;
@@ -813,7 +907,7 @@ function subscribeSession(c){
   if(rtsub)sb.removeChannel(rtsub);
   rtsub=sb.channel('lq-'+c)
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'lehrquiz_sessions',filter:`code=eq.${c}`},
-      ({new:s})=>{if(isPlayer){if(s.phase==='question')showPlayerQ(s.question_index);if(s.phase==='podium')playerFinal();}})
+      ({new:s})=>{if(isPlayer){if(s.phase==='question'||s.phase==='wordcloud')showPlayerQ(s.question_index);if(s.phase==='podium')playerFinal();}})
     .subscribe();
 }
 
@@ -947,6 +1041,121 @@ function deleteQuestion(i){
 renderEditor();
 const up=new URLSearchParams(window.location.search);
 if(up.get('join')){document.getElementById('joinCode').value=up.get('join').toUpperCase();nav('join');}
+
+// WORDCLOUD
+var wcPollIv=null,wcWords={};
+async function showWordcloud(idx){
+  var q=quiz.questions[idx];wcWords={};
+  document.getElementById('wcQNum').textContent=idx+1;
+  document.getElementById('wcQTotal').textContent=quiz.questions.length;
+  document.getElementById('wcQuestion').textContent=q.text;
+  document.getElementById('wcWordCount').textContent='0';
+  curQ=idx;
+  var isLast=idx>=quiz.questions.length-1;
+  document.getElementById('wcNextBtn').textContent=isLast?'Ergebnisse':'Naechste Frage';
+  nav('wordcloud');
+  if(code)await sb.from('lehrquiz_sessions').update({phase:'wordcloud',question_index:idx}).eq('code',code);
+  setTimeout(function(){drawWordcloud({});},120);
+  if(code)pollWordcloud(idx);
+}
+async function pollWordcloud(idx){
+  clearInterval(wcPollIv);
+  wcPollIv=setInterval(async function(){
+    if(!document.getElementById('screen-wordcloud').classList.contains('active')){clearInterval(wcPollIv);return;}
+    var res=await sb.from('lehrquiz_words').select('word').eq('session_code',code).eq('question_index',idx);
+    if(res.error||!res.data)return;
+    var counts={};
+    res.data.forEach(function(r){var w=r.word.toLowerCase();counts[w]=(counts[w]||0)+1;});
+    document.getElementById('wcWordCount').textContent=res.data.length;
+    if(JSON.stringify(counts)!==JSON.stringify(wcWords)){wcWords=counts;drawWordcloud(counts);}
+  },1200);
+}
+function drawWordcloud(words){
+  var canvas=document.getElementById('wcCanvas');
+  var wrap=canvas.parentElement;
+  canvas.width=wrap.clientWidth||780;
+  canvas.height=Math.max(wrap.clientHeight,260);
+  var ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  var entries=Object.entries(words).sort(function(a,b){return b[1]-a[1];});
+  if(!entries.length){
+    ctx.fillStyle='#b0c4d8';ctx.font='15px Inter';ctx.textAlign='center';
+    ctx.fillText('Warte auf Antworten...',canvas.width/2,canvas.height/2);return;
+  }
+  var maxC=Math.max.apply(null,entries.map(function(e){return e[1];}));maxC=Math.max(maxC,1);
+  var minS=16,maxS=Math.min(canvas.width/5,72);
+  var colors=['#1a3a6b','#00b4c8','#2d5a9e','#0097a7','#6b8cba','#00899a','#3a6bc7'];
+  var placed=[];
+  var cx=canvas.width/2,cy=canvas.height/2;
+  entries.forEach(function(entry,i){
+    var word=entry[0],count=entry[1];
+    var size=Math.round(minS+(count/maxC)*(maxS-minS));
+    var weight=count>2?700:count>1?600:400;
+    ctx.font=weight+' '+size+'px 'Source Sans 3',Inter,sans-serif';
+    var tw=ctx.measureText(word).width;
+    var color=colors[i%colors.length];
+    for(var r=0;r<Math.max(cx,cy)*1.6;r+=3){
+      var angle=r*0.3+i*0.5;
+      var x=cx+r*Math.cos(angle)-tw/2;
+      var y=cy+r*Math.sin(angle)+size/3;
+      if(x<4||x+tw>canvas.width-4||y-size<4||y>canvas.height-4)continue;
+      var box={x:x,y:y,w:tw,h:size};
+      var hit=placed.some(function(p){
+        return box.x<p.x+p.w+5&&box.x+box.w+5>p.x&&box.y-box.h<p.y+4&&box.y+4>p.y-p.h;
+      });
+      if(!hit){placed.push(box);ctx.fillStyle=color;ctx.fillText(word,x,y);break;}
+    }
+  });
+}
+function showPlayerWordcloud(idx){
+  var q=quiz.questions[idx];
+  document.getElementById('pwcQNum').textContent=idx+1;
+  document.getElementById('pwcPrompt').textContent=q.text;
+  document.getElementById('wcWordInput').value='';
+  document.getElementById('wcSubmitBtn').classList.remove('hidden');
+  document.getElementById('wcSentMsg').classList.add('hidden');
+  nav('player-wc');
+}
+async function submitWord(){
+  var word=document.getElementById('wcWordInput').value.trim();
+  if(!word){toast('Bitte ein Wort eingeben!');return;}
+  var res=await sb.from('lehrquiz_words').upsert(
+    {session_code:code,question_index:curQ,player_name:myName,word:word},
+    {onConflict:'session_code,question_index,player_name'}
+  );
+  if(res.error){toast('Fehler: '+res.error.message);return;}
+  document.getElementById('wcSubmitBtn').classList.add('hidden');
+  document.getElementById('wcSentMsg').classList.remove('hidden');
+  document.getElementById('wcSentMsg').textContent='Ihr Wort "'+word+'" wurde gespeichert!';
+}
+window.addEventListener('resize',function(){
+  if(document.getElementById('screen-wordcloud').classList.contains('active'))drawWordcloud(wcWords);
+});
+
 </script>
 </body>
 </html>
+
+<div id="screen-wordcloud" class="screen">
+  <div class="wc-header">
+    <div class="q-prog">Frage <strong id="wcQNum">1</strong> / <strong id="wcQTotal">5</strong>&nbsp;<span class="poll-badge">Wortwolke</span></div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="wc-count">Woerter: <strong id="wcWordCount">0</strong></div>
+      <button class="btn btn-danger" onclick="confirmEnd()" style="font-size:12px;padding:7px 14px">Ende</button>
+    </div>
+  </div>
+  <div class="wc-body">
+    <div class="wc-question" id="wcQuestion"></div>
+    <div class="wc-canvas-wrap"><canvas id="wcCanvas"></canvas></div>
+    <button class="btn btn-primary" id="wcNextBtn" onclick="goNext()">Naechste Frage</button>
+  </div>
+</div>
+<div id="screen-player-wc" class="screen">
+  <div class="wc-input-card">
+    <div class="pql">Wortwolke Frage <span id="pwcQNum">1</span></div>
+    <div class="wc-prompt" id="pwcPrompt"></div>
+    <input type="text" class="wc-word-input" id="wcWordInput" placeholder="Dein Wort..." maxlength="30">
+    <button class="btn btn-primary btn-block" id="wcSubmitBtn" onclick="submitWord()">Absenden</button>
+    <div class="wc-sent hidden" id="wcSentMsg">Wort gespeichert!</div>
+  </div>
+</div>
