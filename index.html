@@ -50,6 +50,8 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 .btn-primary:hover{background:#4c33b8}
 .btn-ghost{background:var(--surface);color:var(--text);border:1.5px solid var(--border)}
 .btn-ghost:hover{background:var(--surface2)}
+.btn-danger{background:#fee2e2;color:var(--accent2);border:1.5px solid #fecaca}
+.btn-danger:hover{background:#fecaca}
 .btn-xl{padding:14px 32px;font-size:16px}
 .btn-block{width:100%;justify-content:center;padding:14px}
 
@@ -289,6 +291,18 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 .mpts{font-weight:700;color:var(--yellow);font-size:14px}
 
 /* ── UTILS ── */
+
+/* ── CONFIRM OVERLAY ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100;
+  display:flex;align-items:center;justify-content:center;padding:24px;
+  animation:fadeUp .2s ease}
+.confirm-card{background:var(--surface);border-radius:var(--r-lg);padding:32px 28px;
+  max-width:360px;width:100%;box-shadow:var(--shadow-lg);border:1.5px solid var(--border);
+  display:flex;flex-direction:column;gap:16px;text-align:center}
+.confirm-card h3{font-family:'DM Sans',sans-serif;font-size:20px;font-weight:700;
+  color:var(--text);letter-spacing:-.02em}
+.confirm-card p{font-size:14px;color:var(--text2);line-height:1.6}
+.confirm-btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
 .hidden{display:none!important}
 .divider{height:1px;background:var(--border);width:100%}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
@@ -340,7 +354,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
   <div class="lobby-header">
     <div class="logo">Lehr<em>Quiz</em></div>
     <div id="lobbyTitle" style="font-weight:500;font-size:15px;flex:1;color:var(--text2)"></div>
-    <button class="btn btn-primary" onclick="hostStart()">▶ Spiel starten</button>
+    <button class="btn btn-ghost" onclick="leaveLobby()" style="font-size:13px;padding:8px 16px">← Zurück</button><button class="btn btn-primary" onclick="hostStart()">▶ Spiel starten</button>
   </div>
   <div class="lobby-body">
     <div class="code-card">
@@ -389,6 +403,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
       <span class="timer-num" id="timerNum">30</span>
     </div>
     <div class="q-stats">Antworten<strong id="ansCount">0 / 0</strong></div>
+    <button class="btn btn-danger" onclick="confirmEnd()" style="font-size:12px;padding:7px 14px">✕ Beenden</button>
   </div>
   <div class="q-body">
     <div class="q-text-card">
@@ -408,6 +423,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
     </div>
     <div class="rbars" id="resultBars"></div>
     <button class="btn btn-primary" id="nextBtn" onclick="goNext()">Nächste Frage →</button>
+    <button class="btn btn-danger" onclick="confirmEnd()" style="font-size:13px">✕ Spiel beenden</button>
   </div>
 </div>
 
@@ -442,6 +458,18 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
     <div class="mrank">#<span id="myRank">–</span></div>
     <div class="mname" id="myNameDisp"></div>
     <div class="mpts"><span id="myPts">0</span> Pkt</div>
+  </div>
+</div>
+
+<!-- ══ CONFIRM END OVERLAY ══ -->
+<div id="confirmOverlay" class="overlay hidden">
+  <div class="confirm-card">
+    <h3>Spiel beenden?</h3>
+    <p>Das aktuelle Spiel wird abgebrochen. Teilnehmende werden zur Warteseite weitergeleitet.</p>
+    <div class="confirm-btns">
+      <button class="btn btn-ghost" onclick="closeConfirm()">Abbrechen</button>
+      <button class="btn btn-danger" onclick="endGameNow()">Ja, beenden</button>
+    </div>
   </div>
 </div>
 
@@ -514,7 +542,37 @@ function importQuiz(){
   const i=document.createElement('input');i.type='file';i.accept='.json';
   i.onchange=e=>{
     const r=new FileReader();
-    r.onload=ev=>{try{quiz=JSON.parse(ev.target.result);renderEditor();toast('✅ Quiz geladen!')}
+    r.onload=ev=>{try{quiz=JSON.parse(ev.target.result);
+// ── LOBBY: BACK ──
+async function leaveLobby(){
+  clearInterval(pollIv);
+  if(code){
+    await sb.from('lehrquiz_sessions').delete().eq('code',code);
+    code=null;
+  }
+  // reset lobby UI
+  document.getElementById('playersGrid').innerHTML='';
+  document.getElementById('playerCount').textContent='0';
+  nav('editor');
+}
+
+// ── CONFIRM END OVERLAY ──
+function confirmEnd(){
+  document.getElementById('confirmOverlay').classList.remove('hidden');
+}
+function closeConfirm(){
+  document.getElementById('confirmOverlay').classList.add('hidden');
+}
+async function endGameNow(){
+  closeConfirm();
+  clearInterval(timerIv);clearInterval(pollIv);
+  if(code){
+    await sb.from('lehrquiz_sessions').update({phase:'podium'}).eq('code',code);
+  }
+  await showPodium();
+}
+
+renderEditor();toast('✅ Quiz geladen!')}
     catch{toast('❌ Fehler beim Laden')}};
     r.readAsText(e.target.files[0]);
   };i.click();
@@ -741,6 +799,36 @@ function playerFinal(){
   document.getElementById('waitTitle').textContent='Spiel beendet!';
   document.getElementById('waitSub').textContent='Dein Ergebnis: '+myScore+' Punkte';
   nav('player-wait');
+}
+
+
+// ── LOBBY: BACK ──
+async function leaveLobby(){
+  clearInterval(pollIv);
+  if(code){
+    await sb.from('lehrquiz_sessions').delete().eq('code',code);
+    code=null;
+  }
+  // reset lobby UI
+  document.getElementById('playersGrid').innerHTML='';
+  document.getElementById('playerCount').textContent='0';
+  nav('editor');
+}
+
+// ── CONFIRM END OVERLAY ──
+function confirmEnd(){
+  document.getElementById('confirmOverlay').classList.remove('hidden');
+}
+function closeConfirm(){
+  document.getElementById('confirmOverlay').classList.add('hidden');
+}
+async function endGameNow(){
+  closeConfirm();
+  clearInterval(timerIv);clearInterval(pollIv);
+  if(code){
+    await sb.from('lehrquiz_sessions').update({phase:'podium'}).eq('code',code);
+  }
+  await showPodium();
 }
 
 renderEditor();
