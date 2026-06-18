@@ -52,6 +52,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 .btn-ghost:hover{background:var(--surface2)}
 .btn-danger{background:#fee2e2;color:var(--accent2);border:1.5px solid #fecaca}
 .btn-danger:hover{background:#fecaca}
+.btn-icon{width:30px;height:30px;padding:0;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
 .btn-xl{padding:14px 32px;font-size:16px}
 .btn-block{width:100%;justify-content:center;padding:14px}
 
@@ -342,6 +343,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
   <input type="text" class="field-input" id="quizTitle" value="Mein Lehr-Quiz" oninput="quiz.title=this.value">
   <div id="questionsList"></div>
   <div class="editor-actions">
+    <button class="btn btn-ghost" onclick="addQuestion()" style="font-size:13px">＋ Frage hinzufügen</button>
     <button class="btn btn-ghost" onclick="importQuiz()" style="font-size:13px">📂 Laden</button>
     <button class="btn btn-ghost" onclick="exportQuiz()" style="font-size:13px">💾 Speichern</button>
     <button class="btn btn-ghost" onclick="startSolo()" style="font-size:13px">🎮 Solo-Test</button>
@@ -517,6 +519,7 @@ function renderEditor(){
         <div class="timer-sel">⏱ <select onchange="quiz.questions[${i}].time=+this.value">
           ${[10,15,20,30,45,60].map(t=>`<option value="${t}"${q.time===t?' selected':''}>${t}s</option>`).join('')}
         </select></div>
+        <button class="btn btn-icon btn-danger" onclick="deleteQuestion(${i})" title="Frage löschen">🗑</button>
       </div>
       <div class="ag">
         ${['a','b','c','d'].map((cl,j)=>`
@@ -829,6 +832,33 @@ async function endGameNow(){
     await sb.from('lehrquiz_sessions').update({phase:'podium'}).eq('code',code);
   }
   await showPodium();
+}
+
+
+// ── ADD / DELETE QUESTIONS ──
+function addQuestion(){
+  quiz.questions.push({
+    text:'',
+    answers:['','','',''],
+    correct:0,
+    time:20
+  });
+  renderEditor();
+  // scroll to new card
+  setTimeout(()=>{
+    const cards = document.querySelectorAll('.q-card');
+    const last = cards[cards.length-1];
+    if(last) last.scrollIntoView({behavior:'smooth', block:'center'});
+    const inp = last && last.querySelector('input');
+    if(inp) inp.focus();
+  }, 50);
+}
+
+function deleteQuestion(i){
+  if(quiz.questions.length <= 1){ toast('Mindestens eine Frage muss vorhanden sein!'); return; }
+  if(!confirm('Frage '+(i+1)+' wirklich löschen?')) return;
+  quiz.questions.splice(i, 1);
+  renderEditor();
 }
 
 renderEditor();
