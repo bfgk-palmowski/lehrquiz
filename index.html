@@ -262,6 +262,14 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 .wc-prompt{font-size:15px;font-weight:600;color:var(--text);text-align:center;line-height:1.4}
 .wc-word-input{width:100%;background:var(--bg);border:2px solid var(--border);color:var(--text);font-family:'Source Sans 3',sans-serif;font-size:22px;font-weight:600;padding:13px 16px;border-radius:var(--r);outline:none;transition:border-color .2s;text-align:center}
 .wc-word-input:focus{border-color:var(--cyan)}
+
+.wc-tags-wrap{display:flex;flex-wrap:wrap;gap:6px;min-height:36px;padding:6px 0}
+.wc-tag{display:inline-flex;align-items:center;gap:5px;background:var(--cyan-light);
+  border:1.5px solid var(--cyan);border-radius:100px;padding:4px 10px 4px 12px;
+  font-size:13px;font-weight:600;color:var(--text);animation:popIn .2s ease}
+.wc-tag button{background:none;border:none;cursor:pointer;color:var(--text3);
+  font-size:14px;padding:0;line-height:1;display:flex;align-items:center}
+.wc-tag button:hover{color:var(--accent2)}
 .wc-sent{text-align:center;color:var(--cyan);font-size:15px;font-weight:600;padding:11px;background:var(--cyan-light);border-radius:var(--r);border:1.5px solid var(--cyan)}
 
 /* CONFIRM OVERLAY */
@@ -443,9 +451,14 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
   <div class="wc-input-card">
     <div class="pql">☁️ Wortwolke — Frage <span id="pwcQNum">1</span></div>
     <div class="wc-prompt" id="pwcPrompt"></div>
-    <input type="text" class="wc-word-input" id="wcWordInput" placeholder="Dein Wort…" maxlength="30">
-    <button class="btn btn-primary btn-block" id="wcSubmitBtn" onclick="submitWord()">Absenden →</button>
-    <div class="wc-sent hidden" id="wcSentMsg">☁️ Wort gespeichert!</div>
+    <div class="wc-tags-wrap" id="wcTagsWrap"></div>
+    <div style="display:flex;gap:8px">
+      <input type="text" class="wc-word-input" id="wcWordInput" placeholder="Wort eingeben…" maxlength="30"
+        onkeydown="if(event.key==='Enter')addWordTag()">
+      <button class="btn btn-ghost" onclick="addWordTag()" style="flex-shrink:0;padding:10px 14px;font-size:18px;border-radius:var(--r)">＋</button>
+    </div>
+    <button class="btn btn-primary btn-block" id="wcSubmitBtn" onclick="submitAllWords()">Alle absenden →</button>
+    <div class="wc-sent hidden" id="wcSentMsg">☁️ Wörter gespeichert!</div>
   </div>
 </div>
 
@@ -704,6 +717,15 @@ async function goNext(){
   else{curQ=next;await showQuestion(next);}
 }
 async function showPodium(){
+  // If last question (or all questions) were wordcloud type, skip podium
+  const hasScoring=quiz.questions.some(q=>q.type==='quiz'||q.type==='poll');
+  if(!hasScoring){
+    if(code){await sb.from('lehrquiz_sessions').delete().eq('code',code);code=null;}
+    clearInterval(wcPollIv);
+    nav('editor');
+    toast('Wortwolken-Session beendet!');
+    return;
+  }
   if(code)await sb.from('lehrquiz_sessions').update({phase:'podium'}).eq('code',code);
   let players=[];
   if(code){
@@ -943,40 +965,80 @@ function playerFinal(){
   document.getElementById('waitSub').textContent='Dein Ergebnis: '+myScore+' Punkte';
   nav('player-wait');
 }
+let wcPendingWords=[];
+
 function showPlayerWordcloud(idx){
   const q=quiz.questions[idx];
   document.getElementById('pwcQNum').textContent=idx+1;
   document.getElementById('pwcPrompt').textContent=q.text;
   document.getElementById('wcWordInput').value='';
+  document.getElementById('wcTagsWrap').innerHTML='';
   document.getElementById('wcSubmitBtn').classList.remove('hidden');
+  document.getElementById('wcSubmitBtn').textContent='Alle absenden →';
   document.getElementById('wcSentMsg').classList.add('hidden');
+  wcPendingWords=[];
   nav('player-wc');
+  setTimeout(()=>document.getElementById('wcWordInput').focus(),200);
 }
-async function submitWord(){
-  const wordEl=document.getElementById('wcWordInput');
-  const word=wordEl.value.trim();
-  if(!word){toast('Bitte ein Wort eingeben!');return;}
-  // Sanitize: only keep letters, numbers, hyphens
-  const clean=word.replace(/[^\w\säöüÄÖÜß\-]/gi,'').trim();
-  if(!clean){toast('Ungültige Zeichen — bitte nur Buchstaben.');return;}
+
+function addWordTag(){
+  const inp=document.getElementById('wcWordInput');
+  const raw=inp.value.trim();
+  if(!raw)return;
+  const clean=raw.replace(/[^\wäöüÄÖÜß\-\s]/gi,'').trim();
+  if(!clean){toast('Bitte nur Buchstaben!');return;}
+  if(wcPendingWords.length>=8){toast('Maximal 8 Wörter möglich.');return;}
+  if(wcPendingWords.map(w=>w.toLowerCase()).includes(clean.toLowerCase())){
+    toast('Dieses Wort hast du schon hinzugefügt.');inp.value='';return;
+  }
+  wcPendingWords.push(clean);
+  inp.value='';
+  renderTags();
+  inp.focus();
+}
+
+function removeTag(i){
+  wcPendingWords.splice(i,1);
+  renderTags();
+}
+
+function renderTags(){
+  const wrap=document.getElementById('wcTagsWrap');
+  wrap.innerHTML='';
+  wcPendingWords.forEach((w,i)=>{
+    const tag=document.createElement('div');
+    tag.className='wc-tag';
+    tag.innerHTML=w+'<button onclick="removeTag('+i+')" title="Entfernen">×</button>';
+    wrap.appendChild(tag);
+  });
+  const btn=document.getElementById('wcSubmitBtn');
+  btn.textContent=wcPendingWords.length>0?''+wcPendingWords.length+' Wort'+(wcPendingWords.length>1?'er':'')+'  absenden →':'Alle absenden →';
+}
+
+async function submitAllWords(){
+  if(wcPendingWords.length===0){toast('Bitte mindestens ein Wort eingeben!');return;}
   const btn=document.getElementById('wcSubmitBtn');
   btn.textContent='Wird gespeichert…';btn.disabled=true;
-  const{error}=await sb.from('lehrquiz_words').upsert(
-    {session_code:code,question_index:curQ,player_name:myName,word:clean},
-    {onConflict:'session_code,question_index,player_name'}
-  );
-  btn.textContent='Absenden →';btn.disabled=false;
-  if(error){
-    if(error.code==='42P01'){
-      toast('⚠️ Tabelle fehlt! Bitte SQL-Setup ausführen.');
-    } else {
-      toast('Fehler: '+error.message);
-    }
+
+  // Insert each word with a unique player key (player_name + word index)
+  let anyError=null;
+  for(let i=0;i<wcPendingWords.length;i++){
+    const{error}=await sb.from('lehrquiz_words').upsert(
+      {session_code:code,question_index:curQ,player_name:myName+'__'+i,word:wcPendingWords[i]},
+      {onConflict:'session_code,question_index,player_name'}
+    );
+    if(error){anyError=error;break;}
+  }
+
+  btn.textContent='Alle absenden →';btn.disabled=false;
+  if(anyError){
+    if(anyError.code==='42P01'){toast('⚠️ Tabelle fehlt! Bitte SQL-Setup ausführen.');}
+    else{toast('Fehler: '+anyError.message);}
     return;
   }
   document.getElementById('wcSubmitBtn').classList.add('hidden');
   document.getElementById('wcSentMsg').classList.remove('hidden');
-  document.getElementById('wcSentMsg').textContent='☁️ "'+clean+'" gespeichert!';
+  document.getElementById('wcSentMsg').textContent='☁️ '+wcPendingWords.length+' Wort'+(wcPendingWords.length>1?'er':'')+'  gespeichert!';
 }
 
 // INIT
