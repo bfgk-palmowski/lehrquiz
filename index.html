@@ -311,7 +311,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
     <button class="btn btn-ghost" onclick="nav('start')" style="margin-left:auto;font-size:13px;padding:8px 16px">← Zurück</button>
   </div>
   <label class="fl">Quiz-Titel</label>
-  <input type="text" class="fi" id="quizTitle" value="Mein Lehr-Quiz" oninput="quiz.title=this.value">
+  <input type="text" class="fi" id="quizTitle" value="" placeholder="Titel des Quiz eingeben…" oninput="quiz.title=this.value">
   <div id="questionsList"></div>
   <div class="editor-actions">
     <button class="btn btn-ghost" onclick="addQuestion()" style="font-size:13px">＋ Frage hinzufügen</button>
@@ -479,15 +479,7 @@ const SB_URL='https://ehhygjlpgibetstydwnw.supabase.co';
 const SB_KEY='sb_publishable_vDAnl_i9E7BHM3BfE9QjUw_gMjXMF3Z';
 const sb=supabase.createClient(SB_URL,SB_KEY);
 
-const DEFAULT_Q=[
-  {text:"Was ist das wichtigste Ziel von Informed Consent?",answers:["Rechtliche Absicherung","Autonomie der Patient:innen","Dokumentationspflicht","Haftungsminimierung"],correct:1,time:20,type:'quiz',poll:false},
-  {text:"Welches Modell beschreibt die gemeinsame Entscheidungsfindung?",answers:["Paternalistisches Modell","Shared Decision Making","Experten-Modell","Delegationsmodell"],correct:1,time:20,type:'quiz',poll:false},
-  {text:"Wie hoch ist der Anteil der Deutschen mit Organspendeausweis (ca.)?",answers:["Unter 20 %","Etwa 36 %","Über 60 %","Exakt 50 %"],correct:1,time:20,type:'quiz',poll:false},
-  {text:"Was versteht man unter der 'teach-back' Methode?",answers:["Wiederholung durch Ärzt:in","Patient erklärt mit eigenen Worten zurück","Schriftliche Zusammenfassung","Video-Lerneinheit"],correct:1,time:20,type:'quiz',poll:false},
-  {text:"Welches Kommunikationsmodell betont die non-verbalen Anteile?",answers:["Vier-Ohren-Modell","Eisberg-Modell","Rubikon-Modell","SPIKES-Modell"],correct:1,time:20,type:'quiz',poll:false}
-];
-
-let quiz={title:'Mein Lehr-Quiz',questions:JSON.parse(JSON.stringify(DEFAULT_Q))};
+let quiz={title:'',questions:[]};
 let code=null,isHost=false,isPlayer=false,myName='',myScore=0;
 let curQ=0,timerIv=null,timerLeft=0,answered=false,pTimerIv=null,rtsub=null,pollIv=null;
 let wcWords={},wcPollIv=null;
@@ -511,6 +503,12 @@ function renderEditor(){
   document.getElementById('quizTitle').value=quiz.title;
   const list=document.getElementById('questionsList');
   list.innerHTML='';
+  if(quiz.questions.length===0){
+    const empty=document.createElement('div');
+    empty.style.cssText='text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;line-height:1.8;border:1.5px dashed var(--border);border-radius:var(--r-lg);margin-bottom:16px';
+    empty.innerHTML='<div style="font-size:32px;margin-bottom:12px">📝</div>Noch keine Fragen vorhanden.<br>Klicke auf <strong style="color:var(--text)">＋ Frage hinzufügen</strong> um loszulegen.';
+    list.appendChild(empty);
+  }
   quiz.questions.forEach((q,i)=>{
     const type=q.type||'quiz';
     const d=document.createElement('div');
