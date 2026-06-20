@@ -716,6 +716,19 @@ async function goNext(){
   if(next>=quiz.questions.length){await showPodium();}
   else{curQ=next;await showQuestion(next);}
 }
+
+// Update next button label on result screen based on what's coming
+function updateNextBtnLabel(){
+  const next=curQ+1;
+  const btn=document.getElementById('nextBtn');
+  if(!btn)return;
+  if(next>=quiz.questions.length){
+    const hasScoring=quiz.questions.some(q=>q.type==='quiz'||q.type==='poll');
+    btn.textContent=hasScoring?'🏆 Ergebnisse anzeigen':'✓ Session beenden';
+  } else {
+    btn.textContent='Nächste Frage →';
+  }
+}
 async function showPodium(){
   // If last question (or all questions) were wordcloud type, skip podium
   const hasScoring=quiz.questions.some(q=>q.type==='quiz'||q.type==='poll');
@@ -814,7 +827,12 @@ async function showWordcloud(idx){
   document.getElementById('wcQuestion').textContent=quiz.questions[idx].text;
   document.getElementById('wcWordCount').textContent='0';
   const isLast=idx>=quiz.questions.length-1;
-  document.getElementById('wcNextBtn').textContent=isLast?'🏆 Ergebnisse anzeigen':'Nächste Frage →';
+  const hasScoring=quiz.questions.some(q=>q.type==='quiz'||q.type==='poll');
+  if(isLast){
+    document.getElementById('wcNextBtn').textContent=hasScoring?'🏆 Ergebnisse anzeigen':'✓ Session beenden';
+  } else {
+    document.getElementById('wcNextBtn').textContent='Nächste Frage →';
+  }
   nav('wordcloud');
   if(code)await sb.from('lehrquiz_sessions').update({phase:'wordcloud',question_index:idx}).eq('code',code);
   setTimeout(()=>drawWordcloud({}),300);
