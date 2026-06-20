@@ -795,15 +795,30 @@ async function showWordcloud(idx){
   document.getElementById('wcNextBtn').textContent=isLast?'🏆 Ergebnisse anzeigen':'Nächste Frage →';
   nav('wordcloud');
   if(code)await sb.from('lehrquiz_sessions').update({phase:'wordcloud',question_index:idx}).eq('code',code);
-  setTimeout(()=>drawWordcloud({}),100);
+  setTimeout(()=>drawWordcloud({}),300);
   if(code)pollWordcloud(idx);
 }
 async function pollWordcloud(idx){
   clearInterval(wcPollIv);
+  let tableErrorShown=false;
   wcPollIv=setInterval(async()=>{
     if(!document.getElementById('screen-wordcloud').classList.contains('active')){clearInterval(wcPollIv);return;}
     const{data,error}=await sb.from('lehrquiz_words').select('word').eq('session_code',code).eq('question_index',idx);
-    if(error||!data)return;
+    if(error){
+      if(!tableErrorShown){
+        tableErrorShown=true;
+        const canvas=document.getElementById('wcCanvas');
+        const wrap=canvas.parentElement;
+        canvas.width=wrap.clientWidth||780;canvas.height=Math.max(wrap.clientHeight,240);
+        const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle='#e05a2b';ctx.font='bold 15px Inter';ctx.textAlign='center';
+        ctx.fillText('Tabelle fehlt! Bitte setup.sql im Supabase SQL Editor ausführen.',canvas.width/2,canvas.height/2-10);
+        ctx.fillStyle='#b0c4d8';ctx.font='13px Inter';
+        ctx.fillText('(lehrquiz_words Tabelle anlegen)',canvas.width/2,canvas.height/2+15);
+      }
+      return;
+    }
+    if(!data)return;
     const counts={};data.forEach(r=>{const w=r.word.toLowerCase();counts[w]=(counts[w]||0)+1;});
     document.getElementById('wcWordCount').textContent=data.length;
     if(JSON.stringify(counts)!==JSON.stringify(wcWords)){wcWords=counts;drawWordcloud(counts);}
@@ -812,8 +827,11 @@ async function pollWordcloud(idx){
 function drawWordcloud(words){
   const canvas=document.getElementById('wcCanvas');
   const wrap=canvas.parentElement;
-  canvas.width=wrap.clientWidth||780;
-  canvas.height=Math.max(wrap.clientHeight,240);
+  // Use offsetWidth for reliable sizing after layout
+  const W=wrap.offsetWidth||780;
+  const H=Math.max(wrap.offsetHeight,300);
+  canvas.width=W;
+  canvas.height=H;
   const ctx=canvas.getContext('2d');
   ctx.clearRect(0,0,canvas.width,canvas.height);
   const entries=Object.entries(words).sort((a,b)=>b[1]-a[1]);
@@ -935,13 +953,30 @@ function showPlayerWordcloud(idx){
   nav('player-wc');
 }
 async function submitWord(){
-  const word=document.getElementById('wcWordInput').value.trim();
+  const wordEl=document.getElementById('wcWordInput');
+  const word=wordEl.value.trim();
   if(!word){toast('Bitte ein Wort eingeben!');return;}
-  const{error}=await sb.from('lehrquiz_words').upsert({session_code:code,question_index:curQ,player_name:myName,word:word},{onConflict:'session_code,question_index,player_name'});
-  if(error){toast('Fehler: '+error.message);return;}
+  // Sanitize: only keep letters, numbers, hyphens
+  const clean=word.replace(/[^\w\säöüÄÖÜß\-]/gi,'').trim();
+  if(!clean){toast('Ungültige Zeichen — bitte nur Buchstaben.');return;}
+  const btn=document.getElementById('wcSubmitBtn');
+  btn.textContent='Wird gespeichert…';btn.disabled=true;
+  const{error}=await sb.from('lehrquiz_words').upsert(
+    {session_code:code,question_index:curQ,player_name:myName,word:clean},
+    {onConflict:'session_code,question_index,player_name'}
+  );
+  btn.textContent='Absenden →';btn.disabled=false;
+  if(error){
+    if(error.code==='42P01'){
+      toast('⚠️ Tabelle fehlt! Bitte SQL-Setup ausführen.');
+    } else {
+      toast('Fehler: '+error.message);
+    }
+    return;
+  }
   document.getElementById('wcSubmitBtn').classList.add('hidden');
   document.getElementById('wcSentMsg').classList.remove('hidden');
-  document.getElementById('wcSentMsg').textContent='☁️ "'+word+'" gespeichert!';
+  document.getElementById('wcSentMsg').textContent='☁️ "'+clean+'" gespeichert!';
 }
 
 // INIT
